@@ -24,6 +24,7 @@
 #include "ns3/random-variable-stream.h"
 #include "ns3/netanim-module.h"
 #include "ns3/csma-module.h"
+#include "ns3/worm-module.h"
 
 #include <iostream>
 #include <iomanip>
@@ -37,64 +38,82 @@ uint32_t i = 0;
 uint32_t j = 0;
 uint32_t k = 0;
 uint32_t seed = 123;
-uint32_t fanout = 5;
-uint32_t trees = 4;
-double utilization = 0.75;
+uint32_t fanout = 10;
+uint32_t trees = 10;
+double utilization = 0.5;
 uint32_t created = 0;
 uint32_t missed = 0;
 uint32_t total = 0;
+double stopTime = 10.0;
+string wormTypeCheck = "udp";
+uint32_t packetSize = 256;
+double vulnerability = 0.5;
 
-int main(int argc, char *argv[])
+int main (int argc, char *argv[])
 {
   CommandLine cmd;
-  cmd.AddValue("seed", "Random seed value", seed);
-  cmd.AddValue("fanout", "Fanout value", fanout);
-  cmd.AddValue("utilization", "Utilization value", utilization);
-  cmd.AddValue("trees", "Number of trees", trees);
-  cmd.Parse(argc,argv);
+  cmd.AddValue ("seed", "Random seed value", seed);
+  cmd.AddValue ("fanout", "Fanout value", fanout);
+  cmd.AddValue ("utilization", "Utilization value", utilization);
+  cmd.AddValue ("trees", "Number of trees", trees);
+  cmd.AddValue ("stopTime", "Stop Time", stopTime);
+  cmd.AddValue ("wormTypeCheck", "Type of worm", wormTypeCheck);
+  cmd.AddValue ("packetSize", "Size of packet in bytes", packetSize);
+  cmd.AddValue ("vulnerability", "Vulnerability probability", vulnerability);
+  cmd.Parse (argc,argv);
   
-  double probability = exp(log(utilization)/2);
+  TypeId wormType;
+  if (wormTypeCheck == "udp")
+  {
+    wormType = UdpSocketFactory::GetTypeId ();
+  }
+  else
+  {
+    wormType = TcpSocketFactory::GetTypeId ();
+  }
   
-  RngSeedManager::SetSeed(seed);
+  double probability = exp (log (utilization)/2);
+  
+  RngSeedManager::SetSeed (seed);
   Ptr<UniformRandomVariable> U = CreateObject<UniformRandomVariable> ();
   
-  Config::SetDefault ("ns3::OnOffApplication::DataRate", DataRateValue(DataRate("1Mbps")));
+  Config::SetDefault ("ns3::OnOffApplication::DataRate", DataRateValue (DataRate ("1Mbps")));
   Config::SetDefault ("ns3::OnOffApplication::OnTime", StringValue ("ns3::ConstantRandomVariable[Constant=0.5]"));
   Config::SetDefault ("ns3::OnOffApplication::OffTime", StringValue ("ns3::ConstantRandomVariable[Constant=0.5]"));
-  Config::SetDefault ("ns3::OnOffApplication::PacketSize", UintegerValue (256));
+  Config::SetDefault ("ns3::OnOffApplication::PacketSize", UintegerValue (packetSize));
   Config::SetDefault ("ns3::TcpL4Protocol::SocketType", TypeIdValue (TcpTahoe::GetTypeId ()));
-  Config::SetDefault ("ns3::TcpSocketBase::MaxWindowSize", UintegerValue(8000));
-  Config::SetDefault ("ns3::TcpSocketBase::WindowScaling", BooleanValue(false));
-  Config::SetDefault ("ns3::TcpSocket::SegmentSize", UintegerValue(256));
+  Config::SetDefault ("ns3::TcpSocketBase::MaxWindowSize", UintegerValue (8000));
+  Config::SetDefault ("ns3::TcpSocketBase::WindowScaling", BooleanValue (false));
+  Config::SetDefault ("ns3::TcpSocket::SegmentSize", UintegerValue (packetSize));
   
   NodeContainer center;
-  center.Create(1);
+  center.Create (1);
   
   NodeContainer *tree = new NodeContainer[trees];
   NodeContainer **child1 = new NodeContainer*[trees];
   NodeContainer ***child2 = new NodeContainer**[trees];
   
-  for(i = 0; i < trees; i++)
+  for (i = 0; i < trees; i++)
   {
-    tree[i].Create(1);
+    tree[i].Create (1);
     //cout<<"Creating tree "<<i<<endl;
     child1[i] = new NodeContainer[fanout];
     child2[i] = new NodeContainer*[fanout];
-    for(j = 0; j < fanout; j++)
+    for (j = 0; j < fanout; j++)
     {
-      if(U->GetValue(0.0, 1.0) <= probability)
+      if (U->GetValue (0.0, 1.0) <= probability)
       {
         created++;
         //cout<<"Node "<<i<<j<<endl;
-        child1[i][j].Create(1);
+        child1[i][j].Create (1);
         child2[i][j] = new NodeContainer[fanout];
-        for(k = 0; k < fanout; k++)
+        for (k = 0; k < fanout; k++)
         {
-          if(U->GetValue(0.0,1.0) <= probability)
+          if (U->GetValue (0.0,1.0) <= probability)
           {
             created++;
             //cout<<"Node "<<i<<j<<k<<endl;
-            child2[i][j][k].Create(1);
+            child2[i][j][k].Create (1);
           }
           else
           {
@@ -115,54 +134,54 @@ int main(int argc, char *argv[])
   total = created + missed + trees + 1;
   cout<<"Created = "<<created<<endl;
   cout<<"Missed = "<<missed<<endl;
-  cout<<"Final ratio = "<<double(created)/(created+missed)<<endl;
+  cout<<"Final ratio = "<<double (created)/ (created+missed)<<endl;
   cout<<"Child probability factor = "<<probability<<endl;
   
   InternetStackHelper stack;
   
-  stack.Install(center);
+  stack.Install (center);
   
-  for(i = 0; i < trees; i++)
+  for (i = 0; i < trees; i++)
   {
-    stack.Install(tree[i]);
-    for(j = 0; j < fanout; j++)
+    stack.Install (tree[i]);
+    for (j = 0; j < fanout; j++)
     {
-      if(child1[i][j].GetN())
+      if (child1[i][j].GetN ())
       {
-        stack.Install(child1[i][j]);
-        for(k = 0; k < fanout; k++)
+        stack.Install (child1[i][j]);
+        for (k = 0; k < fanout; k++)
         {
-          if(child2[i][j][k].GetN())
-            stack.Install(child2[i][j][k]);
+          if (child2[i][j][k].GetN ())
+            stack.Install (child2[i][j][k]);
         }
       }
     }
   }
   
   PointToPointHelper link;
-  link.SetDeviceAttribute("DataRate", DataRateValue(DataRate("5Mbps")));
-  link.SetChannelAttribute("Delay", TimeValue(MilliSeconds(10)));
+  link.SetDeviceAttribute ("DataRate", DataRateValue (DataRate ("5Mbps")));
+  link.SetChannelAttribute ("Delay", TimeValue (MilliSeconds (10)));
   
   NetDeviceContainer *device = new NetDeviceContainer[trees];
   NetDeviceContainer **device1 = new NetDeviceContainer*[trees];
   NetDeviceContainer ***device2 = new NetDeviceContainer**[trees];
   
-  for(i = 0; i < trees; i++)
+  for (i = 0; i < trees; i++)
   {
-    device[i].Add(link.Install(center.Get(0), tree[i].Get(0)));
+    device[i].Add (link.Install (center.Get (0), tree[i].Get (0)));
     device1[i] = new NetDeviceContainer[fanout];
     device2[i] = new NetDeviceContainer*[fanout];
-    for(j = 0; j < fanout; j++)
+    for (j = 0; j < fanout; j++)
     {
-      if(child1[i][j].GetN())
+      if (child1[i][j].GetN ())
       {
         device2[i][j] = new NetDeviceContainer[fanout];
-        device1[i][j].Add(link.Install(tree[i].Get(0), child1[i][j].Get(0)));
-        for(k = 0; k < fanout; k++)
+        device1[i][j].Add (link.Install (tree[i].Get (0), child1[i][j].Get (0)));
+        for (k = 0; k < fanout; k++)
         {
-          if(child2[i][j][k].GetN())
+          if (child2[i][j][k].GetN ())
           {
-            device2[i][j][k].Add(link.Install(child1[i][j].Get(0), child2[i][j][k].Get(0)));
+            device2[i][j][k].Add (link.Install (child1[i][j].Get (0), child2[i][j][k].Get (0)));
           }
         }
       }
@@ -177,29 +196,31 @@ int main(int argc, char *argv[])
   
   uint32_t ip = 167772160;
   
+  Worm::SetFirstIP (ip);
+  
   Ipv4AddressHelper address;
   
-  for(i = 0; i < trees; i++)
+  for (i = 0; i < trees; i++)
   {
-    address.SetBase(Ipv4Address(ip), "255.255.255.252");
-    interface[i].Add(address.Assign(device[i]));
+    address.SetBase (Ipv4Address (ip), "255.255.255.252");
+    interface[i].Add (address.Assign (device[i]));
     ip += 4;
     interface1[i] = new Ipv4InterfaceContainer[fanout];
     interface2[i] = new Ipv4InterfaceContainer*[fanout];
-    for(j = 0; j < fanout; j++)
+    for (j = 0; j < fanout; j++)
     {
-      if(child1[i][j].GetN())
+      if (child1[i][j].GetN ())
       {
-        address.SetBase(Ipv4Address(ip), "255.255.255.252");
-        interface1[i][j].Add(address.Assign(device1[i][j]));
+        address.SetBase (Ipv4Address (ip), "255.255.255.252");
+        interface1[i][j].Add (address.Assign (device1[i][j]));
         ip += 4;
         interface2[i][j] = new Ipv4InterfaceContainer[fanout];
-        for(k = 0; k < fanout; k++)
+        for (k = 0; k < fanout; k++)
         {
-          if(child2[i][j][k].GetN())
+          if (child2[i][j][k].GetN ())
           {
-            address.SetBase(Ipv4Address(ip), "255.255.255.252");
-            interface2[i][j][k].Add(address.Assign(device2[i][j][k]));
+            address.SetBase (Ipv4Address (ip), "255.255.255.252");
+            interface2[i][j][k].Add (address.Assign (device2[i][j][k]));
             ip += 4;
           }
           else
@@ -208,27 +229,30 @@ int main(int argc, char *argv[])
       }
       else
       {
-        ip += 4;
+        for (k = 0; k < fanout; k++)
+          ip += 4;
         interface2[i][j] = new Ipv4InterfaceContainer[fanout];
       }
     }
   }
   
+  Worm::SetLastIP (ip-1);
+  
   vector<string> sender;
   
   stringstream ss;
   
-  for(i = 0; i < trees; i++)
+  for (i = 0; i < trees; i++)
   {
-    for(j = 0; j < fanout; j++)
+    for (j = 0; j < fanout; j++)
     {
-      for(k = 0; k < fanout; k++)
+      for (k = 0; k < fanout; k++)
       {
-        if(child2[i][j][k].GetN())
+        if (child2[i][j][k].GetN ())
         {
           ss<<i<<j<<k;
-          sender.push_back(ss.str());
-          ss.str("");
+          sender.push_back (ss.str ());
+          ss.str ("");
         }
       }
     }
@@ -236,14 +260,62 @@ int main(int argc, char *argv[])
   
   vector<string> receiver = sender;
   
+  uint32_t normalPort = 200;
+  uint32_t wormPort = 200;
+  
   ApplicationContainer sourceApps;
   ApplicationContainer sinkApps;
+  ApplicationContainer wormApps;
   
-  while(sender.size())
+  bool vulnerable;
+  
+  Ptr<Worm> app = CreateObject<Worm> ();
+  app->Setup (center.Get (0), interface[0].GetAddress (0), wormPort, packetSize, 0, DataRate ("0.5Mbps"), wormType, true, true, "-1");
+  center.Get (0)->AddApplication (app);
+  wormApps.Add (center.Get (0)->GetApplication (0));
+  
+  for (i = 0; i < trees; i++)
   {
-    uint32_t tx = U->GetInteger(0, sender.size()-1);
-    uint32_t rx = U->GetInteger(0, receiver.size()-1);
-    if(sender[tx] == receiver[rx])
+    ss<<i;
+    Ptr<Worm> app1 = CreateObject<Worm> ();
+    vulnerable = U->GetValue (0, 1.0) <= vulnerability;
+    app1->Setup (tree[i].Get (0), interface[i].GetAddress (1), wormPort, packetSize, 0, DataRate ("0.5Mbps"), wormType, false, vulnerable, ss.str());
+    ss.str("");
+    tree[i].Get (0)->AddApplication (app1);
+    wormApps.Add (tree[i].Get (0)->GetApplication (0));
+    for (j = 0; j < fanout; j++)
+    {
+      if (child1[i][j].GetN ())
+      {
+        ss<<i<<j;
+        Ptr<Worm> app2 = CreateObject<Worm> ();
+        vulnerable = U->GetValue (0, 1.0) <= vulnerability;
+        app2->Setup (child1[i][j].Get (0), interface1[i][j].GetAddress (1), wormPort, packetSize, 0, DataRate ("0.5Mbps"), wormType, false, vulnerable, ss.str());
+        ss.str("");
+        child1[i][j].Get (0)->AddApplication (app2);
+        wormApps.Add (child1[i][j].Get (0)->GetApplication (0));
+        for (k = 0; k < fanout; k++)
+        {
+          if (child2[i][j][k].GetN ())
+          {
+            ss<<i<<j<<k;
+            Ptr<Worm> app3 = CreateObject<Worm> ();
+            vulnerable = U->GetValue (0, 1.0) <= vulnerability;
+            app3->Setup (child2[i][j][k].Get (0), interface2[i][j][k].GetAddress (1), wormPort, packetSize, 0, DataRate ("0.5Mbps"), wormType, false, vulnerable, ss.str());
+            ss.str("");
+            child2[i][j][k].Get (0)->AddApplication (app3);
+            wormApps.Add (child2[i][j][k].Get (0)->GetApplication (0));
+          }
+        }
+      }
+    }
+  }
+  
+  while (sender.size ())
+  {
+    uint32_t tx = U->GetInteger (0, sender.size ()-1);
+    uint32_t rx = U->GetInteger (0, receiver.size ()-1);
+    if (sender[tx] == receiver[rx])
       continue;
       
     uint32_t tx0 = sender[tx][0] - 48;
@@ -254,37 +326,55 @@ int main(int argc, char *argv[])
     uint32_t rx1 = receiver[rx][1] - 48;
     uint32_t rx2 = receiver[rx][2] - 48;
     
-    OnOffHelper source ("ns3::UdpSocketFactory", InetSocketAddress(interface2[rx0][rx1][rx2].GetAddress(1), 200));
-    ApplicationContainer temp1 = source.Install(NodeContainer(child2[tx0][tx1][tx2].Get(0)));
-    temp1.Start(Seconds(U->GetValue(0, 0.1)));
-    sourceApps.Add(temp1);
+    OnOffHelper source ("ns3::UdpSocketFactory", InetSocketAddress (interface2[rx0][rx1][rx2].GetAddress (1), normalPort));
+    ApplicationContainer temp1 = source.Install (NodeContainer (child2[tx0][tx1][tx2].Get (0)));
+    temp1.Start (Seconds (U->GetValue (0, 0.1)));
+    sourceApps.Add (temp1);
     
-    PacketSinkHelper sink("ns3::UdpSocketFactory", InetSocketAddress(interface2[rx0][rx1][rx2].GetAddress(1), 200));
-    sinkApps.Add(sink.Install(child2[rx0][rx1][rx2].Get(0)));
+    PacketSinkHelper sink ("ns3::UdpSocketFactory", InetSocketAddress (interface2[rx0][rx1][rx2].GetAddress (1), normalPort));
+    sinkApps.Add (sink.Install (child2[rx0][rx1][rx2].Get (0)));
         
-    sender.erase(sender.begin() + tx);
-    receiver.erase(receiver.begin() + rx);
+    sender.erase (sender.begin () + tx);
+    receiver.erase (receiver.begin () + rx);
   }
   
-  sourceApps.Stop(Seconds(10.0));
-  sinkApps.Start(Seconds(0.0));
-  sinkApps.Stop(Seconds(10.0));
+  sourceApps.Stop (Seconds (stopTime));
+  sinkApps.Start (Seconds (0.0));
+  sinkApps.Stop (Seconds (stopTime));
+  wormApps.Start (Seconds (0.0));
+  wormApps.Stop (Seconds (stopTime));
   
-  Ipv4GlobalRoutingHelper::PopulateRoutingTables();
+  Ipv4GlobalRoutingHelper::PopulateRoutingTables ();
   
-  Simulator::Stop(Seconds(10.0));
-  Simulator::Run();
-  Simulator::Destroy();
+  Simulator::Stop (Seconds (stopTime));
+  Simulator::Run ();
+  Simulator::Destroy ();
   
   double rcvd = 0;
   cout<<"---------------------------------------------------"<<endl;
-  for(ApplicationContainer::Iterator it = sinkApps.Begin();it != sinkApps.End();it++)
+  for (ApplicationContainer::Iterator it = sinkApps.Begin ();it != sinkApps.End ();it++)
   {
-    Ptr<PacketSink> temp = DynamicCast<PacketSink>(*it);
-    rcvd += temp->GetTotalRx();
+    Ptr<PacketSink> temp = DynamicCast<PacketSink> (*it);
+    rcvd += temp->GetTotalRx ();
   }
   rcvd /= 1024;
   cout<<"Total Received Data = "<<rcvd<<" kB"<<endl;
+  cout<<"---------------------------------------------------"<<endl;
+
+  /*for (ApplicationContainer::Iterator it = wormApps.Begin ();it != wormApps.End ();it++)
+  {
+    Ptr<Worm> temp = DynamicCast<Worm> (*it);
+    cout<<"Node ID = "<<temp->GetID ()<<endl;
+    cout<<"Total Tx = "<<temp->GetTotalTx ()<<endl;
+    cout<<"Total Rx = "<<temp->GetTotalRx ()<<endl;
+    cout<<"---------------------------------------------------"<<endl;
+  }*/
+  
+  vector<string> listInfected = Worm::GetListInfected();
+  vector<double> time = Worm::GetTime();
+  
+  for (i = 0; i < listInfected.size (); i++)
+    cout<<listInfected[i]<<"\t"<<time[i]<<i+1<<endl;
   cout<<"---------------------------------------------------"<<endl;
   
   return 0;
