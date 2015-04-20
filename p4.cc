@@ -22,7 +22,6 @@
 #include "ns3/packet-sink-helper.h"
 #include "ns3/drop-tail-queue.h"
 #include "ns3/random-variable-stream.h"
-#include "ns3/netanim-module.h"
 #include "ns3/csma-module.h"
 #include "ns3/worm-module.h"
 
@@ -30,6 +29,7 @@
 #include <iomanip>
 #include <string>
 #include <cmath>
+#include <fstream>
 
 using namespace std;
 using namespace ns3;
@@ -40,14 +40,16 @@ uint32_t k = 0;
 uint32_t seed = 123;
 uint32_t fanout = 10;
 uint32_t trees = 10;
-double utilization = 0.5;
+double utilization = 0.75;
 uint32_t created = 0;
 uint32_t missed = 0;
 uint32_t total = 0;
-double stopTime = 10.0;
-string wormTypeCheck = "udp";
-uint32_t packetSize = 256;
-double vulnerability = 0.5;
+double stopTime = 20.0;
+string wormTypeCheck = "tcp";
+uint32_t packetSize = 128;
+double vulnerability = 0.75;
+string dataRate = "0.1Mbps";
+uint32_t connections = 1;
 
 int main (int argc, char *argv[])
 {
@@ -60,29 +62,40 @@ int main (int argc, char *argv[])
   cmd.AddValue ("wormTypeCheck", "Type of worm", wormTypeCheck);
   cmd.AddValue ("packetSize", "Size of packet in bytes", packetSize);
   cmd.AddValue ("vulnerability", "Vulnerability probability", vulnerability);
+  cmd.AddValue ("dataRate", "Data rate in Mbps", dataRate);
+  cmd.AddValue ("connections", "Number of parallel connections", connections);
   cmd.Parse (argc,argv);
   
   TypeId wormType;
   if (wormTypeCheck == "udp")
   {
     wormType = UdpSocketFactory::GetTypeId ();
+    connections = 1;
+    Worm::SetConnections (connections);
+    Worm::SetType (wormType);
   }
   else
   {
     wormType = TcpSocketFactory::GetTypeId ();
+    Worm::SetConnections (connections);
+    Worm::SetType (wormType);
   }
+  
+  Worm::SetPacketSize (packetSize);
+  Worm::SetNPackets (0);
+  Worm::SetDataRate (DataRate (dataRate));
   
   double probability = exp (log (utilization)/2);
   
   RngSeedManager::SetSeed (seed);
   Ptr<UniformRandomVariable> U = CreateObject<UniformRandomVariable> ();
   
-  Config::SetDefault ("ns3::OnOffApplication::DataRate", DataRateValue (DataRate ("1Mbps")));
+  Config::SetDefault ("ns3::OnOffApplication::DataRate", DataRateValue (DataRate ("0.5Mbps")));
   Config::SetDefault ("ns3::OnOffApplication::OnTime", StringValue ("ns3::ConstantRandomVariable[Constant=0.5]"));
   Config::SetDefault ("ns3::OnOffApplication::OffTime", StringValue ("ns3::ConstantRandomVariable[Constant=0.5]"));
   Config::SetDefault ("ns3::OnOffApplication::PacketSize", UintegerValue (packetSize));
   Config::SetDefault ("ns3::TcpL4Protocol::SocketType", TypeIdValue (TcpTahoe::GetTypeId ()));
-  Config::SetDefault ("ns3::TcpSocketBase::MaxWindowSize", UintegerValue (8000));
+  Config::SetDefault ("ns3::TcpSocketBase::MaxWindowSize", UintegerValue (64000));
   Config::SetDefault ("ns3::TcpSocketBase::WindowScaling", BooleanValue (false));
   Config::SetDefault ("ns3::TcpSocket::SegmentSize", UintegerValue (packetSize));
   
@@ -160,7 +173,11 @@ int main (int argc, char *argv[])
   
   PointToPointHelper link;
   link.SetDeviceAttribute ("DataRate", DataRateValue (DataRate ("5Mbps")));
-  link.SetChannelAttribute ("Delay", TimeValue (MilliSeconds (10)));
+  
+  if (wormTypeCheck == "udp")
+    link.SetChannelAttribute ("Delay", TimeValue (MilliSeconds (10)));
+  else
+    link.SetChannelAttribute ("Delay", TimeValue (MilliSeconds (1)));
   
   NetDeviceContainer *device = new NetDeviceContainer[trees];
   NetDeviceContainer **device1 = new NetDeviceContainer*[trees];
@@ -260,7 +277,7 @@ int main (int argc, char *argv[])
   
   vector<string> receiver = sender;
   
-  uint32_t normalPort = 200;
+  uint32_t normalPort = 2000;
   uint32_t wormPort = 200;
   
   ApplicationContainer sourceApps;
@@ -270,7 +287,7 @@ int main (int argc, char *argv[])
   bool vulnerable;
   
   Ptr<Worm> app = CreateObject<Worm> ();
-  app->Setup (center.Get (0), interface[0].GetAddress (0), wormPort, packetSize, 0, DataRate ("0.5Mbps"), wormType, true, true, "-1");
+  app->Setup (center.Get (0), interface[0].GetAddress (0), wormPort, true, true, "-1");
   center.Get (0)->AddApplication (app);
   wormApps.Add (center.Get (0)->GetApplication (0));
   
@@ -279,7 +296,7 @@ int main (int argc, char *argv[])
     ss<<i;
     Ptr<Worm> app1 = CreateObject<Worm> ();
     vulnerable = U->GetValue (0, 1.0) <= vulnerability;
-    app1->Setup (tree[i].Get (0), interface[i].GetAddress (1), wormPort, packetSize, 0, DataRate ("0.5Mbps"), wormType, false, vulnerable, ss.str());
+    app1->Setup (tree[i].Get (0), interface[i].GetAddress (1), wormPort, false, vulnerable, ss.str());
     ss.str("");
     tree[i].Get (0)->AddApplication (app1);
     wormApps.Add (tree[i].Get (0)->GetApplication (0));
@@ -290,7 +307,7 @@ int main (int argc, char *argv[])
         ss<<i<<j;
         Ptr<Worm> app2 = CreateObject<Worm> ();
         vulnerable = U->GetValue (0, 1.0) <= vulnerability;
-        app2->Setup (child1[i][j].Get (0), interface1[i][j].GetAddress (1), wormPort, packetSize, 0, DataRate ("0.5Mbps"), wormType, false, vulnerable, ss.str());
+        app2->Setup (child1[i][j].Get (0), interface1[i][j].GetAddress (1), wormPort, false, vulnerable, ss.str());
         ss.str("");
         child1[i][j].Get (0)->AddApplication (app2);
         wormApps.Add (child1[i][j].Get (0)->GetApplication (0));
@@ -301,7 +318,7 @@ int main (int argc, char *argv[])
             ss<<i<<j<<k;
             Ptr<Worm> app3 = CreateObject<Worm> ();
             vulnerable = U->GetValue (0, 1.0) <= vulnerability;
-            app3->Setup (child2[i][j][k].Get (0), interface2[i][j][k].GetAddress (1), wormPort, packetSize, 0, DataRate ("0.5Mbps"), wormType, false, vulnerable, ss.str());
+            app3->Setup (child2[i][j][k].Get (0), interface2[i][j][k].GetAddress (1), wormPort, false, vulnerable, ss.str());
             ss.str("");
             child2[i][j][k].Get (0)->AddApplication (app3);
             wormApps.Add (child2[i][j][k].Get (0)->GetApplication (0));
@@ -350,6 +367,9 @@ int main (int argc, char *argv[])
   Simulator::Run ();
   Simulator::Destroy ();
   
+  ofstream output ("p4-output.txt", ios::app);
+  output<<" = [";
+  
   double rcvd = 0;
   cout<<"---------------------------------------------------"<<endl;
   for (ApplicationContainer::Iterator it = sinkApps.Begin ();it != sinkApps.End ();it++)
@@ -360,22 +380,37 @@ int main (int argc, char *argv[])
   rcvd /= 1024;
   cout<<"Total Received Data = "<<rcvd<<" kB"<<endl;
   cout<<"---------------------------------------------------"<<endl;
-
-  /*for (ApplicationContainer::Iterator it = wormApps.Begin ();it != wormApps.End ();it++)
-  {
-    Ptr<Worm> temp = DynamicCast<Worm> (*it);
-    cout<<"Node ID = "<<temp->GetID ()<<endl;
-    cout<<"Total Tx = "<<temp->GetTotalTx ()<<endl;
-    cout<<"Total Rx = "<<temp->GetTotalRx ()<<endl;
-    cout<<"---------------------------------------------------"<<endl;
-  }*/
+  cout<<"seed = "<<seed<<endl;
+  cout<<"---------------------------------------------------"<<endl;
+  cout<<"trees = "<<trees<<endl;
+  cout<<"---------------------------------------------------"<<endl;
+  cout<<"fanout = "<<fanout<<endl;
+  cout<<"---------------------------------------------------"<<endl;
+  cout<<"utilization = "<<utilization<<endl;
+  cout<<"---------------------------------------------------"<<endl;
+  cout<<"dataRate = "<<dataRate<<endl;
+  cout<<"---------------------------------------------------"<<endl;
+  cout<<"wormTypeCheck = "<<wormTypeCheck<<endl;
+  cout<<"---------------------------------------------------"<<endl;
+  cout<<"vulnerability = "<<vulnerability<<endl;
+  cout<<"---------------------------------------------------"<<endl;
+  cout<<"packetSize = "<<packetSize<<endl;
+  cout<<"---------------------------------------------------"<<endl;
+  cout<<"connections = "<<connections<<endl;
+  cout<<"---------------------------------------------------"<<endl;
   
   vector<string> listInfected = Worm::GetListInfected();
   vector<double> time = Worm::GetTime();
   
   for (i = 0; i < listInfected.size (); i++)
-    cout<<listInfected[i]<<"\t"<<time[i]<<i+1<<endl;
+  {
+    cout<<setw(10)<<listInfected[i]<<"\t"<<setw(10)<<time[i]<<"\t"<<setw(10)<<i+1<<endl;
+    output<<time[i]<<" ";
+  }
   cout<<"---------------------------------------------------"<<endl;
+  
+  output<<"];\n";
+  output.close ();
   
   return 0;
 }
