@@ -19,15 +19,23 @@ public:
   Worm ();
   virtual ~Worm ();
   
-  void Setup (Ptr<Node> node, Ipv4Address address, uint32_t port, uint32_t packetSize, uint32_t nPackets, DataRate dataRate, TypeId typeId, bool infected, bool vulnerable, string ID);
+  void Setup (Ptr<Node> node, Ipv4Address address, uint32_t port, bool infected, bool vulnerable, string ID);
+  
   uint32_t GetTotalTx (void);
   uint32_t GetTotalRx (void);
   string GetID (void);
   
-  static void SetFirstIP (uint32_t first);
-  static void SetLastIP (uint32_t last);
   static vector<string> GetListInfected (void);
   static vector<double> GetTime (void);
+  
+  static void SetType (TypeId typeId);
+  static void SetFirstIP (uint32_t first);
+  static void SetLastIP (uint32_t last);
+  static void SetConnections (uint32_t connections);
+  static void SetPacketSize (uint32_t packetSize);
+  static void SetNPackets (uint32_t nPackets);
+  static void SetDataRate (DataRate dataRate);
+  
   
 private:
   virtual void StartApplication (void);
@@ -43,15 +51,12 @@ private:
   Ptr<Node>                   m_node;
   Ipv4Address                 m_address;
   uint32_t                    m_port;
-  Ptr<Socket>                 m_txSocket;
+  vector<Ptr<Socket> >        m_txSocket;
   Ptr<Socket>                 m_rxSocket;
   list<Ptr<Socket> >          m_rxSocketList;
-  Address                     m_destinationAddress;
+  vector<Address>             m_destinationAddress;
   Address                     m_sinkAddress;
-  Address                     m_sourceAddress;
-  uint32_t                    m_packetSize;
-  uint32_t                    m_nPackets;
-  DataRate                    m_dataRate;
+  vector<Address>             m_sourceAddress;
   EventId                     m_sendEvent;
   bool                        m_running;
   uint32_t                    m_packetsSent;
@@ -67,6 +72,10 @@ private:
   static uint32_t             lastIP;
   static vector<string>       m_listInfected;
   static vector<double>       m_time;
+  static uint32_t             m_connections;
+  static uint32_t             m_packetSize;
+  static uint32_t             m_nPackets;
+  static DataRate             m_dataRate;
 };
 
 #endif /* Worm_H */
