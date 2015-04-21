@@ -38,17 +38,17 @@ uint32_t i = 0;
 uint32_t j = 0;
 uint32_t k = 0;
 uint32_t seed = 123;
-uint32_t fanout = 10;
-uint32_t trees = 10;
+uint32_t fanout = 3;
+uint32_t trees = 3;
 double utilization = 0.75;
 uint32_t created = 0;
 uint32_t missed = 0;
 uint32_t total = 0;
 double stopTime = 20.0;
 string wormTypeCheck = "tcp";
-uint32_t packetSize = 128;
+uint32_t packetSize = 256;
 double vulnerability = 0.75;
-string dataRate = "0.1Mbps";
+string dataRate = "0.5Mbps";
 uint32_t connections = 1;
 
 int main (int argc, char *argv[])
@@ -71,18 +71,16 @@ int main (int argc, char *argv[])
   {
     wormType = UdpSocketFactory::GetTypeId ();
     connections = 1;
-    Worm::SetConnections (connections);
-    Worm::SetType (wormType);
   }
   else
   {
     wormType = TcpSocketFactory::GetTypeId ();
-    Worm::SetConnections (connections);
-    Worm::SetType (wormType);
+    
   }
   
+  Worm::SetType (wormType);
+  Worm::SetConnections (connections);
   Worm::SetPacketSize (packetSize);
-  Worm::SetNPackets (0);
   Worm::SetDataRate (DataRate (dataRate));
   
   double probability = exp (log (utilization)/2);
@@ -145,10 +143,6 @@ int main (int argc, char *argv[])
   }
   
   total = created + missed + trees + 1;
-  cout<<"Created = "<<created<<endl;
-  cout<<"Missed = "<<missed<<endl;
-  cout<<"Final ratio = "<<double (created)/ (created+missed)<<endl;
-  cout<<"Child probability factor = "<<probability<<endl;
   
   InternetStackHelper stack;
   
@@ -177,7 +171,7 @@ int main (int argc, char *argv[])
   if (wormTypeCheck == "udp")
     link.SetChannelAttribute ("Delay", TimeValue (MilliSeconds (10)));
   else
-    link.SetChannelAttribute ("Delay", TimeValue (MilliSeconds (1)));
+    link.SetChannelAttribute ("Delay", TimeValue (MilliSeconds (10)));
   
   NetDeviceContainer *device = new NetDeviceContainer[trees];
   NetDeviceContainer **device1 = new NetDeviceContainer*[trees];
@@ -371,13 +365,19 @@ int main (int argc, char *argv[])
   output<<" = [";
   
   double rcvd = 0;
-  cout<<"---------------------------------------------------"<<endl;
   for (ApplicationContainer::Iterator it = sinkApps.Begin ();it != sinkApps.End ();it++)
   {
     Ptr<PacketSink> temp = DynamicCast<PacketSink> (*it);
     rcvd += temp->GetTotalRx ();
   }
   rcvd /= 1024;
+  
+  cout<<"---------------------------------------------------"<<endl;
+  cout<<"Created = "<<created<<endl;
+  cout<<"Missed = "<<missed<<endl;
+  cout<<"Final ratio = "<<double (created)/ (created+missed)<<endl;
+  cout<<"Child probability factor = "<<probability<<endl;
+  cout<<"---------------------------------------------------"<<endl;
   cout<<"Total Received Data = "<<rcvd<<" kB"<<endl;
   cout<<"---------------------------------------------------"<<endl;
   cout<<"seed = "<<seed<<endl;
