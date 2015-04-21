@@ -33,18 +33,25 @@ public:
   static void SetLastIP (uint32_t last);
   static void SetConnections (uint32_t connections);
   static void SetPacketSize (uint32_t packetSize);
-  static void SetNPackets (uint32_t nPackets);
   static void SetDataRate (DataRate dataRate);
-  
   
 private:
   virtual void StartApplication (void);
   virtual void StopApplication (void);
 
-  void ScheduleTx (void);
-  void SendPacket (void);
+  void ScheduleTxUDP (void);
+  void SendPacketUDP (void);
+  
+  void ScheduleTxTCP (Ptr<Socket> socket, uint32_t txSpace);
+  void SearchTCP (void);
+  void SendPacketTCP (Ptr<Socket> socket);
+  void ConnectionSucceeded (Ptr<Socket> socket);
+  void ConnectionFailed (Ptr<Socket> socket);
+  void Sending (Ptr<Socket> socket, uint32_t txSpace); 
+  
   void HandleRead (Ptr<Socket> socket);
   void HandleAccept (Ptr<Socket> s, const Address& from);
+  
   void CreateListIP (void);
   Ipv4Address GetDestinationIP (void);
 
@@ -54,7 +61,7 @@ private:
   vector<Ptr<Socket> >        m_txSocket;
   Ptr<Socket>                 m_rxSocket;
   list<Ptr<Socket> >          m_rxSocketList;
-  vector<Address>             m_destinationAddress;
+  Address                     m_destinationAddress;
   Address                     m_sinkAddress;
   vector<Address>             m_sourceAddress;
   EventId                     m_sendEvent;
@@ -74,7 +81,6 @@ private:
   static vector<double>       m_time;
   static uint32_t             m_connections;
   static uint32_t             m_packetSize;
-  static uint32_t             m_nPackets;
   static DataRate             m_dataRate;
 };
 
