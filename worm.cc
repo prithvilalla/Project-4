@@ -19,7 +19,6 @@ vector<string> Worm::m_listInfected;
 vector<double> Worm::m_time;
 uint32_t Worm::m_connections = 1;
 uint32_t Worm::m_packetSize = 256;
-uint32_t Worm::m_nPackets = 0;
 DataRate Worm::m_dataRate = DataRate ("0.5Mbps");
 
 Worm::Worm ():
@@ -28,8 +27,8 @@ Worm::Worm ():
   m_port (0),
   m_rxSocket (NULL),
   m_sinkAddress (Address ()),
-  m_sendEvent (), 
-  m_running (false), 
+  m_sendEvent (),
+  m_running (false),
   m_packetsSent (0),
   m_packetsReceived (0),
   m_infected (false),
@@ -55,11 +54,11 @@ Worm::Setup (Ptr<Node> node, Ipv4Address address, uint32_t port, bool infected, 
   for (uint32_t i = 0; i < m_connections; i++)
   {
     m_txSocket.push_back (Socket::CreateSocket (node, m_typeId));
-    m_sourceAddress.push_back (InetSocketAddress (address, port-1-i));
+    m_sourceAddress.push_back (InetSocketAddress (m_address, m_port-1-i));
   }
   
   m_rxSocket = Socket::CreateSocket (node, m_typeId);
-  m_sinkAddress = InetSocketAddress (address, port);
+  m_sinkAddress = InetSocketAddress (m_address, m_port);
   m_infected = infected;
   m_vulnerable = vulnerable;
   m_ID = ID;
@@ -74,20 +73,29 @@ Worm::StartApplication (void)
   m_packetsSent = 0;
   m_packetsReceived = 0;
   for (uint32_t i = 0; i < m_connections; i++)
+  {
     m_txSocket[i]->Bind (m_sourceAddress[i]);
-  //m_txSocket->ShutdownRecv ();
+    if (m_typeId == TcpSocketFactory::GetTypeId ())
+    {
+      m_txSocket[i]->SetConnectCallback (MakeCallback (&Worm::ConnectionSucceeded, this), MakeCallback (&Worm::ConnectionFailed, this));
+      m_txSocket[i]->SetDataSentCallback (MakeCallback (&Worm::Sending, this));
+    }
+  }
+  
   m_rxSocket->Bind (m_sinkAddress);
   m_rxSocket->Listen ();
-  //m_rxSocket->ShutdownSend ();
   m_rxSocket->SetRecvCallback (MakeCallback (&Worm::HandleRead, this));
   m_rxSocket->SetAcceptCallback (MakeNullCallback<bool, Ptr<Socket>, const Address &> (), MakeCallback (&Worm::HandleAccept, this));
-   
+     
   if(m_infected)
   {
     m_listInfected.push_back (m_ID);
     m_time.push_back (Simulator::Now().GetSeconds());
     CreateListIP ();
-    SendPacket ();
+    if (m_typeId == UdpSocketFactory::GetTypeId ())
+      Simulator::ScheduleNow (&Worm::SendPacketUDP, this);
+    else
+      Simulator::ScheduleNow (&Worm::SearchTCP, this);
   }
 }
 
@@ -123,38 +131,48 @@ Worm::StopApplication (void)
 }
 
 void 
-Worm::SendPacket (void)
+Worm::SendPacketUDP (void)
 {
-  for (uint32_t i = 0; i < m_destinationAddress.size (); i++)
-  {
-    m_destinationAddress.erase (m_destinationAddress.begin () + i);
-  }
-  for (uint32_t i = 0; i < m_connections; i++)
-  {
-    m_destinationAddress.push_back (InetSocketAddress (GetDestinationIP (), m_port));
-    m_txSocket[i]->Connect (m_destinationAddress[i]);
-    Ptr<Packet> packet = Create<Packet> (m_packetSize);
-    m_txSocket[i]->Send (packet);
-    m_packetsSent++;
-  }
-  if(m_nPackets == 0)
-  {
-    ScheduleTx ();
-  }
-  else if (m_packetsSent < m_nPackets)
-  {
-    ScheduleTx ();
-  }
+
+  m_destinationAddress = InetSocketAddress (GetDestinationIP (), m_port);
+  m_txSocket[0]->Connect (m_destinationAddress);
+  Ptr<Packet> packet = Create<Packet> (m_packetSize);
+  m_txSocket[0]->Send (packet);
+  m_packetsSent++;
+  Simulator::ScheduleNow (&Worm::ScheduleTxUDP, this);
 }
 
 void 
-Worm::ScheduleTx (void)
+Worm::ScheduleTxUDP (void)
 {
   if (m_running)
   {
     Time tNext (Seconds (m_packetSize * 8 / static_cast<double> (m_dataRate.GetBitRate ())));
-    m_sendEvent = Simulator::Schedule (tNext, &Worm::SendPacket, this);
+    m_sendEvent = Simulator::Schedule (tNext, &Worm::SendPacketUDP, this);
   }
+}
+
+void 
+Worm::SearchTCP (void)
+{
+  //cout<<m_ID<<" searching "<<Simulator::Now().GetSeconds()<<endl;
+  //getchar();
+  for (uint32_t i = 0; i < m_connections; i++)
+  {
+    m_destinationAddress = InetSocketAddress (GetDestinationIP (), m_port);
+    m_txSocket[i]->Connect (m_destinationAddress);
+  }
+  //Simulator::ScheduleNow (&Worm::SearchTCP, this);
+  Simulator::Schedule (Time (Seconds (0.05)), &Worm::SearchTCP, this);
+}
+
+void
+Worm::SendPacketTCP (Ptr<Socket> socket)
+{
+  Ptr<Packet> packet = Create<Packet> (m_packetSize);
+  //cout<<m_ID<<" transmitting "<<Simulator::Now().GetSeconds()<<endl;
+  socket->Send (packet);
+  m_packetsSent++;
 }
 
 void
@@ -175,7 +193,13 @@ Worm::HandleRead (Ptr<Socket> socket)
       m_listInfected.push_back (m_ID);
       m_time.push_back (Simulator::Now().GetSeconds());
       CreateListIP ();
-      SendPacket();
+      if (m_typeId == UdpSocketFactory::GetTypeId ())
+        SendPacketUDP();
+      else
+      {
+        //cout<<m_ID<<" infected "<<Simulator::Now ().GetSeconds ()<<endl;
+        Simulator::ScheduleNow (&Worm::SearchTCP, this);
+      }
     }
   }
 }
@@ -249,6 +273,7 @@ Worm::GetDestinationIP (void)
     CreateListIP ();
   uint32_t i = U->GetInteger (0, m_listIP.size ()-1);
   uint32_t temp = m_listIP[i];
+  //cout<<m_ID<<" IP = "<<temp<<endl;
   m_listIP.erase (m_listIP.begin () + i);
   return Ipv4Address (temp);
 }
@@ -266,13 +291,27 @@ Worm::SetPacketSize (uint32_t packetSize)
 }
 
 void
-Worm::SetNPackets (uint32_t nPackets)
-{
-  m_nPackets = nPackets;
-}
-
-void
 Worm::SetDataRate (DataRate dataRate)
 {
   m_dataRate = dataRate;
+}
+
+void
+Worm::ConnectionSucceeded (Ptr<Socket> socket)
+{
+  //cout<<m_ID<<" Worm ConnectionSucceed "<<Simulator::Now ().GetSeconds ()<<endl;
+  m_sendEvent = Simulator::ScheduleNow (&Worm::SendPacketTCP, this, socket);
+}
+
+void
+Worm::ConnectionFailed (Ptr<Socket> socket)
+{
+  cout<<m_ID<<" Worm ConnectionFailed "<<Simulator::Now ().GetSeconds ()<<endl;
+  //socket->Close ();
+}
+
+void
+Worm::Sending (Ptr<Socket> socket, uint32_t txSpace)
+{
+  cout<<m_ID<<" Worm Data Sent "<<txSpace<<" "<<Simulator::Now ().GetSeconds ()<<endl;
 }
